@@ -1,72 +1,46 @@
-import requests
 import numpy as np
-from typing import List, Dict, Tuple
+from typing import List, Dict
 from config import settings
+from surrealdb import Surreal
 
-
-class PocketBaseVectorSearch:
+class SurrealDBVectorSearch:
     def __init__(self):
-        self.base_url = settings.pocketbase_url
-        self._auth_token = None
-        self._embedding_cache = None  # Stores (id, embedding) tuples
-        self._authenticate()
+        self.client = Surreal(settings.surrealdb_url)
+        # Authenticate and select the namespace and database
+        self.client.signin({"user": settings.surrealdb_username, "pass": settings.surrealdb_password})
+        self.client.use(namespace=settings.surrealdb_namespace, database=settings.surrealdb_database)
 
-    def _authenticate(self):
-        """Admin authentication with email/password"""
-        auth_url = f"{self.base_url}/api/admins/auth-with-password"
-        response = requests.post(auth_url, json={
-            "identity": settings.admin_email,
-            "password": settings.admin_password
-        })
-        response.raise_for_status()
-        self._auth_token = response.json()['token']
+    def find_nearest(self, query_embedding: List[float], k: int = 5) -> List[Dict]:
+        """
+        Use SurrealDB's vector search to retrieve the k nearest halacha questions.
+        The query uses the HNSW vector operator and the built-in knn function.
+        (Note: Lower distance means more similar.)
+        """
+        # The query uses a parameterized vector for searching.
+        query = f"""
+        SELECT id, Question, vector::distance::knn() AS distance
+        FROM {settings.surrealdb_table}
+        WHERE embedding <|HNSW|> $query_embedding
+        ORDER BY distance ASC
+        LIMIT {k};
+        """
+        result = self.client.query(query, {"query_embedding": query_embedding})
+        # Depending on the client’s response format, we normalize the result.
+        # (Often, the result is a list where the first element contains the records.)
+        if result and isinstance(result[0], list):
+            records = result[0]
+        else:
+            records = result
 
-    def _get_all_embeddings(self) -> List[Tuple[str, list]]:
-        """Fetch and cache all embeddings with their PocketBase IDs"""
-        if not self._embedding_cache:
-            url = f"{self.base_url}/api/collections/questions/records?fields=id,embedding"
-            headers = {"Authorization": f"Bearer {self._auth_token}"}
+        # Map the database result to a list of dictionaries.
+        output = []
+        for rec in records:
+            output.append({
+                "id": rec.get("id"),
+                "question": rec.get("Question", ""),
+                "similarity": rec.get("distance")  # distance (lower means more similar)
+            })
+        return output
 
-            try:
-                response = requests.get(url, headers=headers)
-                response.raise_for_status()
-                items = response.json()['items']
-                self._embedding_cache = [
-                    (item['id'], np.array(item['embedding']))
-                    for item in items
-                ]
-            except requests.exceptions.RequestException as e:
-                raise ConnectionError(f"Failed to fetch embeddings: {str(e)}")
-
-        return self._embedding_cache
-
-    def find_nearest_ids(self, query_embedding: list, k: int = 5) -> List[str]:
-        """Find top k similar embeddings and return their PocketBase IDs"""
-        query_vec = np.array(query_embedding)
-        embeddings = self._get_all_embeddings()
-
-        similarities = []
-        for pb_id, stored_vec in embeddings:
-            norm = np.linalg.norm(stored_vec) * np.linalg.norm(query_vec)
-            similarity = np.dot(stored_vec, query_vec) / norm if norm != 0 else 0
-            similarities.append((pb_id, similarity))
-
-        # Sort by similarity descending
-        sorted_ids = sorted(similarities, key=lambda x: x[1], reverse=True)[:k]
-        return [pb_id for pb_id, _ in sorted_ids]
-
-    def get_full_records(self, ids: List[str]) -> List[Dict]:
-        """Fetch complete records by PocketBase IDs"""
-        url = f"{self.base_url}/api/collections/questions/records"
-        headers = {"Authorization": f"Bearer {self._auth_token}"}
-        params = {"filter": f'id = "{",".join(ids)}"'}
-
-        try:
-            response = requests.get(url, headers=headers, params=params)
-            response.raise_for_status()
-            return response.json()['items']
-        except requests.exceptions.RequestException as e:
-            raise ConnectionError(f"Failed to fetch records: {str(e)}")
-
-
-pb_vector_search = PocketBaseVectorSearch()
+# Instantiate the service to be used in our routes.
+surreal_vector_search = SurrealDBVectorSearch()

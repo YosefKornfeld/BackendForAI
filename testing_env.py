@@ -7,7 +7,7 @@ from models.schemas import QuestionRequest
 
 async def test_search():
     # Create a test question
-    test_question = "Can I use electricity on Shabbat?"
+    test_question = "האם מותר להשתמש בחשמל בשבת?"
 
     # Generate embedding
     embedding = embedding_service.get_embedding(test_question)
