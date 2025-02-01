@@ -3,7 +3,8 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     pocketbase_url: str
-    pocketbase_token: str
+    admin_email: str
+    admin_password: str
     embedding_model: str = "HeNLP/HeRo"
 
     class Config:
