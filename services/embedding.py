@@ -19,8 +19,10 @@ class EmbeddingService:
         )
         with torch.no_grad():
             outputs = self.model(**inputs)
-        # Mean pooling on token embeddings to get a fixed-size vector
+        # Mean pooling on token embeddings to get a fixed-size vector.
+        # Make sure that the chosen model produces 768-dimensional embeddings.
         embedding = outputs.last_hidden_state.mean(dim=1).squeeze().tolist()
+        print("Generated embedding for:", text, embedding)  # Debug output
         if isinstance(embedding, float):
             return [embedding]
         return embedding
