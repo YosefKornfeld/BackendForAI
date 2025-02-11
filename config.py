@@ -1,15 +1,16 @@
 from pydantic_settings import BaseSettings
+import os
 
 class Settings(BaseSettings):
-    surrealdb_url: str = "https://sudb.elgrab.li/rpc"
+    surrealdb_url: str = os.getenv('SURREALDB_URL')
     surrealdb_namespace: str = "halacha_data"
     surrealdb_database: str = "halacha"
-    surrealdb_username: str = "Ephraim"
-    surrealdb_password: str = "Af!131044"
+    surrealdb_username: str = os.getenv('SURREALDB_USERNAME')
+    surrealdb_password: str = os.getenv('SURREALDB_PASSWORD')
     surrealdb_table: str = "halacha_data"
-    embedding_model: str = "HeNLP/HeRo"
-    openai_api_key: str = "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"
-    serp_api_key: str = "a7af41747605ae79916d2e03b231432d4d8e8c14d17bedf670856b60e0547575" 
+    embedding_model: str = os.getenv('EMBEDDING_MODEL')
+    openai_api_key: str = os.getenv('OPENAI_API_KEY')
+    serp_api_key: str = os.getenv('SERP_API_KEY')
 
     model_config = {
         "env_file": ".env",
