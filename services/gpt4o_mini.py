@@ -47,13 +47,13 @@ def extract_json_block(text: str) -> str:
     json_start = -1
     
     for i, char in enumerate(cleaned_text):
-        if char == '{':
-            if brace_count == 0:
+        if (char == '{'):
+            if (brace_count == 0):
                 json_start = i
             brace_count += 1
-        elif char == '}':
+        elif (char == '}'):
             brace_count -= 1
-            if brace_count == 0 and json_start != -1:
+            if (brace_count == 0 and json_start != -1):
                 # We found a balanced JSON string from json_start to i
                 return cleaned_text[json_start:i+1]
     
@@ -93,75 +93,45 @@ def validate_schema(json_data: dict) -> bool:
     
     return True
 
-def build_prompt(question: str, search_results: str) -> str:
+def build_prompt(question: str, qa_pairs: str) -> str:
     """
     Build the user prompt to be sent to the language model.
     """
     return f"""
 
-Search Results:
-{search_results}
+Previous Q&A pairs (in JSON format):
+{qa_pairs}
 
-Do not include any extra text before or after the JSON.
-Question: "{question}"
+Current question:
+"{question}"
 """.strip()
 
 # Instantiate the OpenAI client (ensure openai==1.55.3 and httpx==0.27.2 are used)
 client = OpenAI(api_key=settings.openai_api_key)
 
-def get_gpt4mini_answer(question: str) -> dict:
+def get_gpt4mini_answer(question: str, qa_pairs: str) -> dict:
     """
-    Calls OpenAI's GPT-4o to generate an answer based on actual search results.
-    The model is instructed to incorporate provided search results and output a JSON response.
-    Expected JSON format:
-      {
-        "answer": "<main answer to the question>",
-        "qa_list": [
-           { "question": "<related question 1>", "answer": "<answer for related question 1>" },
-           ...
-        ]
-      }
+    Calls OpenAI's GPT-4o to generate an answer based on actual search results and Q&A pairs.
+    The model is instructed to incorporate provided search results and Q&A pairs, and output the main answer.
     """
-    # Retrieve search results for the question
-    search_results = get_serp_results(question, num_results=5)
     # Construct the prompt
-    prompt = build_prompt(question, search_results)
+    prompt = build_prompt(question, qa_pairs)
 
     try:
         response = client.chat.completions.create(
-            model="o1-mini",  # Replace or adjust the model name as appropriate
+            model="gpt-4o",  # Replace or adjust the model name as appropriate
             messages=[
                 {
                     "role": "user",
-                    "content": """You are an expert in answering halachic questions. Based on your knowledge and if the search results provided below are correct use them also, answer the following question. Your output must be valid JSON that exactly matches the format described. Do not include any additional text, markdown formatting, or explanation. Output ONLY the JSON object.YOU MUST RETURN A CLEAN JSON, WITHOUT ANY EXTRA TEXT! make sure the json you provide is correctly formatted and is an actual json, the json must be super correct
-                    The qa_list should provide very, very detailed example questions.
-
-Generate a JSON response in the following exact format:
-{{
-  "answer": "<main answer to the question based solely on the search results>",
-  "qa_list": [
-    {{
-      "question": "<related question 1 from the search>",
-      "answer": "<answer for related question 1 from the search>"
-    }},
-    {{
-      "question": "<related question 2 from the search>",
-      "answer": "<answer for related question 2>"
-    }},
-    {{
-      "question": "<related question 3 from the search>",
-      "answer": "<answer for related question 3 from the search>"
-    }},
-    {{
-      "question": "<related question 4 from the search>",
-      "answer": "<answer for related question 4>"
-    }},
-    {{
-      "question": "<related question 5 from the search>",
-      "answer": "<answer for related question 5 from the search>"
-    }}
-  ]
-}}"""
+                    "content": """You are an expert in answering halachic questions. You have been provided with a 
+                        list of previous Q&A pairs that may be relevant to the current question. Your task is 
+                        to carefully analyze these Q&A pairs and determine which information applies to answering 
+                        the current question. If a direct answer is present, use it; if not, infer the answer from 
+                        the context provided by the Q&A pairs and your expertise. 
+                        In your response, include a detailed explanation of your reasoning by referring directly 
+                        to the relevant parts of the provided Q&A pairs (for example, 'In Q&A pair 1, ...' or 
+                        'Based on Q&A pair 2, ...'). Ensure that your answer is coherent and comprehensive. 
+                        Output your answer as plain text with no markdown formatting, code blocks, or additional commentary."""
                 },
                 {
                     "role": "user",
@@ -175,15 +145,11 @@ Generate a JSON response in the following exact format:
         content = remove_invisible_chars(content)
         content = normalize_quotes(content)
 
-        # 2) Extract JSON from the content
-        json_block = extract_json_block(content)
-        
-        # 3) Parse the extracted JSON
-        answer_data = json.loads(json_block)
-        
-        # (Optional) Validate the structure of the JSON
-        if not validate_schema(answer_data):
-            raise ValueError("Returned JSON does not match expected schema.")
+        # Construct the JSON response
+        answer_data = {
+            "answer": content,
+            "qa_list": json.loads(qa_pairs)
+        }
         
         return answer_data
 
@@ -193,5 +159,5 @@ Generate a JSON response in the following exact format:
         # Return a fallback
         return {
             "answer": "Sorry, an error occurred while generating the answer.",
-            "qa_list": []
+            "qa_list": json.loads(qa_pairs)
         }
